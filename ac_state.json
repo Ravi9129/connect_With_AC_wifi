@@ -1,0 +1,10 @@
+{
+  "power": false,
+  "mode": "fan",
+  "temp": 27,
+  "fan": "auto",
+  "swing_v": "auto",
+  "swing_h": "auto",
+  "powerful": false,
+  "quiet": true
+}

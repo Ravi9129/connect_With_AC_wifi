@@ -1,0 +1,130 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panasonic AC Remote</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --fg:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --on:#22c55e; --off:#ef4444; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,sans-serif; background:var(--bg); color:var(--fg); }
+  main { max-width:440px; margin:0 auto; padding:16px; }
+  h1 { font-size:1.2rem; margin:0 0 4px; }
+  .status { font-size:.8rem; color:var(--muted); margin-bottom:12px; }
+  .status b.ok { color:var(--on); } .status b.bad { color:var(--off); }
+  .card { background:var(--card); border-radius:16px; padding:16px; margin-bottom:12px; }
+  .display { text-align:center; }
+  .temp { font-size:4rem; font-weight:700; }
+  .sub { color:var(--muted); text-transform:capitalize; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:10px; }
+  .label { width:100%; font-size:.75rem; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+  button { flex:1; min-width:56px; padding:12px 8px; border:0; border-radius:12px; background:#334155;
+           color:var(--fg); font-size:1rem; cursor:pointer; text-transform:capitalize; }
+  button.sel { background:var(--accent); color:#0f172a; font-weight:600; }
+  button.power { font-size:1.2rem; background:var(--off); }
+  button.power.on { background:var(--on); }
+  button.big { font-size:1.8rem; }
+  #chat { height:160px; overflow-y:auto; font-size:.9rem; }
+  #chat p { margin:4px 0; } #chat .me { color:var(--accent); text-align:right; }
+  form { display:flex; gap:8px; margin-top:8px; }
+  input { flex:1; padding:12px; border-radius:12px; border:0; background:#334155; color:var(--fg); font-size:1rem; }
+  .err { color:var(--off); font-size:.85rem; min-height:1em; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Panasonic AC Remote</h1>
+  <div class="status" id="status">Connecting…</div>
+
+  <div class="card display">
+    <div class="temp"><span id="temp">--</span>°C</div>
+    <div class="sub" id="summary"></div>
+    <div class="row">
+      <button class="big" onclick="bump(-1)">−</button>
+      <button class="power" id="power" onclick="send({power: !S.power})">⏻ Power</button>
+      <button class="big" onclick="bump(1)">+</button>
+    </div>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card">
+    <div class="row"><div class="label">Mode</div><span id="modes" class="row" style="width:100%;margin:0"></span></div>
+    <div class="row"><div class="label">Fan</div><span id="fans" class="row" style="width:100%;margin:0"></span></div>
+    <div class="row"><div class="label">Swing (vertical)</div><span id="swing_v" class="row" style="width:100%;margin:0"></span></div>
+    <div class="row"><div class="label">Extra</div>
+      <button id="powerful" onclick="send({powerful: !S.powerful, quiet: false})">Powerful</button>
+      <button id="quiet" onclick="send({quiet: !S.quiet, powerful: false})">Quiet</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="label">AC Bot</div>
+    <div id="chat"><p>Hi! Tell me what to do: "cool 22", "off", "fan 3", "colder", "powerful".</p></div>
+    <form onsubmit="chat(event)">
+      <input id="msg" placeholder="Type a command…" autocomplete="off">
+      <button style="flex:0 0 auto">Send</button>
+    </form>
+  </div>
+</main>
+<script>
+let S = {}, O = {};
+const $ = id => document.getElementById(id);
+
+function render() {
+  $("temp").textContent = S.temp;
+  $("summary").textContent = S.power ? `${S.mode} · fan ${S.fan} · swing ${S.swing_v}` : "Off";
+  $("power").classList.toggle("on", S.power);
+  $("power").textContent = S.power ? "⏻ ON" : "⏻ OFF";
+  for (const [box, key, list] of [["modes","mode",O.modes],["fans","fan",O.fans],["swing_v","swing_v",O.swing_v]]) {
+    $(box).innerHTML = "";
+    for (const v of list) {
+      const b = document.createElement("button");
+      b.textContent = v;
+      b.className = S[key] === v ? "sel" : "";
+      b.onclick = () => send({[key]: v});
+      $(box).appendChild(b);
+    }
+  }
+  $("powerful").className = S.powerful ? "sel" : "";
+  $("quiet").className = S.quiet ? "sel" : "";
+}
+
+async function load() {
+  const r = await fetch("/api/state").then(r => r.json());
+  S = r.settings; O = r.options;
+  const d = r.device;
+  $("status").innerHTML = `Blaster: <b class="${d.connected ? "ok" : "bad"}">${d.connected ? "connected" : "not connected"}</b> — ${d.info}`;
+  render();
+}
+
+async function send(changes) {
+  $("err").textContent = "";
+  const r = await fetch("/api/state", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(changes)});
+  const j = await r.json();
+  if (!r.ok) { $("err").textContent = j.error; return; }
+  S = j.settings; render();
+}
+
+function bump(d) {
+  const t = Math.min(O.max_temp, Math.max(O.min_temp, S.temp + d));
+  send({temp: t, power: true});
+}
+
+function say(text, cls) {
+  const p = document.createElement("p");
+  p.textContent = text; if (cls) p.className = cls;
+  $("chat").appendChild(p); $("chat").scrollTop = 1e9;
+}
+
+async function chat(e) {
+  e.preventDefault();
+  const m = $("msg").value.trim(); if (!m) return;
+  $("msg").value = ""; say(m, "me");
+  const j = await fetch("/api/bot", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({message:m})}).then(r => r.json());
+  say(j.reply); S = j.settings; render();
+}
+
+load();
+</script>
+</body>
+</html>

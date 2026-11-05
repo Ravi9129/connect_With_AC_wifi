@@ -1,0 +1,4 @@
+flask>=3.0
+broadlink>=0.19
+numpy>=1.24
+sounddevice>=0.4
